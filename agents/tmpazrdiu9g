@@ -1,0 +1,186 @@
+import os
+import pandas as pd
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CSV_PATH = os.path.join(BASE_DIR, "..", "knowledge_base", "product_info_slim.csv")
+
+print(f"[Recommender] Loading product CSV from: {CSV_PATH}")
+
+df = pd.read_csv(CSV_PATH)
+
+df = df[[
+    "brand_name",
+    "product_name",
+    "ingredients",
+    "price_usd",
+    "highlights",
+    "primary_category",
+    "secondary_category",
+    "tertiary_category"
+]]
+
+df["highlights_lower"] = df["highlights"].fillna("").str.lower()
+df["ingredients_lower"] = df["ingredients"].fillna("").str.lower()
+
+
+def recommender_agent(filters):
+    print("[Recommender Agent] Selecting products with scoring...")
+
+    skin_type       = (filters.get("skin_type") or "").lower()
+    product_type    = (filters.get("product_type") or "").lower()
+
+    min_price       = float(filters.get("min_price") or 0)
+    max_price       = float(filters.get("max_price") or 0)
+
+    main_concerns = filters.get("main_concerns") or []
+    if isinstance(main_concerns, str):
+        main_concerns = [main_concerns]
+    main_concerns = [c.lower() for c in main_concerns if c]
+
+    age_range       = (filters.get("age_range") or "").lower()
+    needs_sensitive = bool(filters.get("needs_sensitive") or False)
+
+    filtered_df = df.copy()
+
+   
+        #PRODUCT TYPE
+    if product_type:
+        pt = product_type.lower()
+
+        if pt == "serum":
+            mask_type = (
+                filtered_df["product_name"].fillna("").str.lower().str.contains("serum")
+                | filtered_df["primary_category"].fillna("").str.lower().str.contains("serum")
+                | filtered_df["secondary_category"].fillna("").str.lower().str.contains("serum")
+                | filtered_df["tertiary_category"].fillna("").str.lower().str.contains("serum")
+            )
+
+        elif pt == "cleanser":
+            # cleanser / face wash
+            mask_type = (
+                filtered_df["product_name"].fillna("").str.lower().str.contains("cleanser")
+                | filtered_df["product_name"].fillna("").str.lower().str.contains("face wash")
+                | filtered_df["primary_category"].fillna("").str.lower().str.contains("cleanser")
+                | filtered_df["secondary_category"].fillna("").str.lower().str.contains("cleanser")
+                | filtered_df["tertiary_category"].fillna("").str.lower().str.contains("cleanser")
+            )
+
+        elif pt == "moisturizer":
+            #  moisturizer / cream / lotion
+            mask_type = (
+                filtered_df["product_name"].fillna("").str.lower().str.contains("moisturizer")
+                | filtered_df["product_name"].fillna("").str.lower().str.contains("cream")
+                | filtered_df["primary_category"].fillna("").str.lower().str.contains("moisturizer")
+                | filtered_df["secondary_category"].fillna("").str.lower().str.contains("moisturizer")
+                | filtered_df["tertiary_category"].fillna("").str.lower().str.contains("moisturizer")
+            )
+
+        else:
+            # fallback generic for other type of products
+            mask_type = (
+                filtered_df["primary_category"].fillna("").str.lower().str.contains(pt)
+                | filtered_df["secondary_category"].fillna("").str.lower().str.contains(pt)
+                | filtered_df["tertiary_category"].fillna("").str.lower().str.contains(pt)
+            )
+
+        filtered_df = filtered_df[mask_type]
+
+   
+    if min_price > 0:
+        filtered_df = filtered_df[filtered_df["price_usd"] >= min_price]
+    if max_price > 0:
+        filtered_df = filtered_df[filtered_df["price_usd"] <= max_price]
+
+    if filtered_df.empty:
+        return [
+            "No skincare products matched your filters.",
+            "Tip: Try widening your price range or changing the product type."
+        ]
+
+    #  Scoring 
+    filtered_df["score"] = 0
+
+    # +2 → Skin type match
+    if skin_type:
+        mask_skin = filtered_df["highlights_lower"].str.contains(skin_type)
+        filtered_df.loc[mask_skin, "score"] += 2
+
+    # +2 Main concerns 
+    if main_concerns:
+        for concern in main_concerns:
+            mask_c = (
+                filtered_df["highlights_lower"].str.contains(concern) |
+                filtered_df["ingredients_lower"].str.contains(concern)
+            )
+            filtered_df.loc[mask_c, "score"] += 2
+
+    # +1 → Price
+    if max_price > 0:
+        mask_cheap = filtered_df["price_usd"] <= max_price * 0.8
+        filtered_df.loc[mask_cheap, "score"] += 1
+
+    # +1 → Age range o “all ages”
+    if age_range:
+        mask_age = (
+            filtered_df["highlights_lower"].str.contains(age_range) |
+            filtered_df["highlights_lower"].str.contains("all ages")
+        )
+        filtered_df.loc[mask_age, "score"] += 1
+
+    # +1 → Suitable for sensitive skin
+    if needs_sensitive:
+        mask_sens = filtered_df["highlights_lower"].str.contains("sensitive")
+        filtered_df.loc[mask_sens, "score"] += 1
+
+    
+    filtered_df = filtered_df[filtered_df["score"] > 0]
+
+    if filtered_df.empty:
+        return [
+            "No products fully matched your filters (skin type + concerns + price).",
+            "Tip: Try quitar una concern o ampliar el rango de precio."
+        ]
+
+    #  Ranking 
+    filtered_df = filtered_df.sort_values(
+        by=["score", "price_usd"],
+        ascending=[False, True]
+    )
+
+    total_matches = len(filtered_df)
+
+    # Messages 
+    pretty_skin = skin_type or "your"
+    pretty_concerns = ", ".join(main_concerns) if main_concerns else "your main concern(s)"
+
+    header = (
+        f"**Top skincare recommendations for you**  \n"
+        f"(Skin type: {pretty_skin}, "
+        f"Main concern(s): {pretty_concerns}, "
+        f"Budget: {min_price if min_price > 0 else 0}–{max_price if max_price > 0 else 'N/A'})"
+    )
+
+    results = [header]
+
+    if 0 < total_matches < 5:
+        results.append(
+            f"Only **{total_matches}** products matched your filters. Showing all available matches."
+        )
+
+    for rank, (_, row) in enumerate(filtered_df.head(5).iterrows(), start=1):
+        ing_list = [x.strip() for x in str(row["ingredients"]).split(",") if x.strip()]
+        key_ings = ", ".join(ing_list[:3]) if ing_list else "key skincare ingredients"
+
+        item = (
+            f"{rank}) **{row['product_name']}** by *{row['brand_name']}* – ${row['price_usd']}\n"
+            f"Reason: Recommended for {pretty_skin} skin and {pretty_concerns}.\n"
+            f"Contains key ingredients such as {key_ings}.\n"
+            f"(Score: {row['score']})"
+        )
+        results.append(item)
+
+    results.append(
+        "_These recommendations are based on product data and tags and are not medical advice._"
+    )
+
+    return results
