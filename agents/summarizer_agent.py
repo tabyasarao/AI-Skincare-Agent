@@ -8,7 +8,7 @@ load_dotenv()
 
 
 def summarizer_agent(evidence_list):
-    print("[Summarizer Agent] Summarizing dermatology evidence (FREE using Groq)...")
+    print("[Summarizer Agent] Summarizing dermatology evidence...")
 
     if isinstance(evidence_list, list):
         evidence_text = "\n".join(evidence_list)

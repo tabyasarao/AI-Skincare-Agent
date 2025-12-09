@@ -1,6 +1,5 @@
 import streamlit as st
 from pipeline import run_pipeline
-
 # ------------ CUSTOM CSS (solo estilos, no cambia estructura) ------------
 # ------------ CUSTOM CSS -----------------------
 st.markdown("""
