@@ -13,7 +13,7 @@ def run_pipeline(query, condition, skin_type):
     print("[Planner] Planning workflow: RAG → Summarize → Recommend → Reflect")
 
     # Step 2: RAG Search
-    evidence = rag_search(query)
+    evidence = rag_agent(query)
     print(f"\n[RAG Agent] Retrieved Evidence:\n{evidence[:300]}...\n")
 
     # Step 3: Summarize
