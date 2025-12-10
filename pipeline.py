@@ -36,6 +36,11 @@ def run_pipeline(user_query, filters):
     recommendations = recommender_agent(filters)
 
     # 5. Reflective
-    score = reflective_agent(summary, recommendations, user_query)
-
+    score = reflective_agent(
+        summary=summary,
+        recommendations=recommendations,
+        query=user_query,
+        filters=filters,
+        evidence=evidence,
+    )
     return summary, recommendations, score
